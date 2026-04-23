@@ -531,8 +531,59 @@
 }
 
 @media (max-width: 700px) {
+  .app {
+    flex-direction: column-reverse;
+  }
+  
   .sidebar {
-    width: 260px;
-    min-width: 260px;
+    width: 100%;
+    min-width: 100%;
+    height: 50vh;
+    border-right: none;
+    border-top: 1px solid var(--border);
+  }
+
+  .main {
+    height: 50vh;
+  }
+
+  .sidebar-header {
+    display: none; /* Hide redundant title to save space on mobile */
+  }
+
+  .main-toolbar {
+    padding: 10px;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .toolbar-info {
+    flex-wrap: wrap;
+    justify-content: center;
+    font-size: 11px;
+    text-align: center;
+  }
+
+  .toolbar-actions {
+    display: none; /* Rely on the sidebar footer export button */
+  }
+
+  .preview-panel {
+    padding: 16px;
+  }
+
+  .drop-zone {
+    padding: 24px 16px;
+  }
+
+  .features-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .feature-item {
+    flex-direction: row;
+    justify-content: center;
   }
 }
