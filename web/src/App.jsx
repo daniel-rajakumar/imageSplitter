@@ -194,37 +194,51 @@ export default function App() {
 
   const handleImport = () => fileInputRef.current?.click();
 
-  // Mouse Dragging
-  const handleMouseDown = (e) => {
-    if (!image || !canvasRef.current) return;
-    setIsDragging(true);
-    const canvas = canvasRef.current;
-    const scale = canvas.width / image.width;
-    dragStart.current = { x: e.clientX, y: e.clientY, ox: offsetX, oy: offsetY, scale };
+  // Touch & Mouse Dragging
+  const getCoordinates = (e) => {
+    if (e.touches && e.touches.length > 0) {
+      return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+    return { x: e.clientX, y: e.clientY };
   };
 
-  const handleMouseMove = useCallback((e) => {
+  const handlePointerDown = (e) => {
+    if (!image || !canvasRef.current) return;
+    setIsDragging(true);
+    const pos = getCoordinates(e);
+    const canvas = canvasRef.current;
+    const scale = canvas.width / image.width;
+    dragStart.current = { x: pos.x, y: pos.y, ox: offsetX, oy: offsetY, scale };
+  };
+
+  const handlePointerMove = useCallback((e) => {
     if (!isDragging || !dragStart.current) return;
+    const pos = getCoordinates(e);
     const { x, y, ox, oy, scale } = dragStart.current;
-    setOffsetX(ox + (e.clientX - x) / scale);
-    setOffsetY(oy + (e.clientY - y) / scale);
+    setOffsetX(ox + (pos.x - x) / scale);
+    setOffsetY(oy + (pos.y - y) / scale);
   }, [isDragging, offsetX, offsetY]);
 
-  const handleMouseUp = () => {
+  const handlePointerUp = () => {
     setIsDragging(false);
     dragStart.current = null;
   };
 
   useEffect(() => {
     if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
+      const moveHandler = (e) => handlePointerMove(e);
+      window.addEventListener('mousemove', moveHandler);
+      window.addEventListener('touchmove', moveHandler, { passive: false });
+      window.addEventListener('mouseup', handlePointerUp);
+      window.addEventListener('touchend', handlePointerUp);
       return () => {
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
+        window.removeEventListener('mousemove', moveHandler);
+        window.removeEventListener('touchmove', moveHandler);
+        window.removeEventListener('mouseup', handlePointerUp);
+        window.removeEventListener('touchend', handlePointerUp);
       };
     }
-  }, [isDragging, handleMouseMove]);
+  }, [isDragging, handlePointerMove]);
 
   // Window Resize
   useEffect(() => {
@@ -300,7 +314,11 @@ export default function App() {
 
       {/* Main Canvas Area */}
       <main className="preview-area">
-        <div className="preview-canvas-wrap" onMouseDown={handleMouseDown}>
+        <div 
+          className="preview-canvas-wrap" 
+          onMouseDown={handlePointerDown} 
+          onTouchStart={handlePointerDown}
+        >
           <canvas ref={canvasRef} />
         </div>
       </main>
