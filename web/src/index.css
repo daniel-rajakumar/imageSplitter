@@ -1,28 +1,22 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 :root {
-  --bg-primary: #0a0a0f;
-  --bg-secondary: #13131a;
-  --bg-card: rgba(255, 255, 255, 0.04);
-  --bg-card-hover: rgba(255, 255, 255, 0.07);
-  --bg-surface: rgba(255, 255, 255, 0.06);
-  --border: rgba(255, 255, 255, 0.08);
-  --border-focus: rgba(99, 102, 241, 0.5);
-  --text-primary: #f0f0f5;
-  --text-secondary: rgba(240, 240, 245, 0.55);
-  --text-tertiary: rgba(240, 240, 245, 0.35);
-  --accent: #6366f1;
-  --accent-glow: rgba(99, 102, 241, 0.25);
-  --accent-hover: #818cf8;
+  --bg-primary: #000000;
+  --bg-secondary: #1a1a1a;
+  --bg-surface: #222222;
+  --bg-active: #333333;
+  --border: #333333;
+  --text-primary: #f5f5f5;
+  --text-secondary: #a0a0a0;
+  --text-tertiary: #666666;
+  --accent: #3782f7;
+  --accent-disabled: #2c4c7c;
+  --accent-hover: #5b9bf9;
   --danger: #ef4444;
-  --success: #10b981;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--border);
-  --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--border);
-  --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --transition: 150ms ease;
 }
 
 *, *::before, *::after {

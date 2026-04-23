@@ -33,7 +33,7 @@ function computeCropRect(imgW, imgH, rows, cols, zoom, offsetX, offsetY) {
   const centY = (imgH - rH) / 2;
   const x = Math.min(Math.max(Math.round(centX + cx), 0), imgW - rW);
   const y = Math.min(Math.max(Math.round(centY + cy), 0), imgH - rH);
-  return { x, y, w: rW, h: rH, clampedOx: x - centX, clampedOy: y - centY };
+  return { x, y, w: rW, h: rH, clampedOx: cx, clampedOy: cy };
 }
 
 function generateTiles(img, crop, rows, cols) {
@@ -54,10 +54,7 @@ function generateTiles(img, crop, rows, cols) {
       tiles.push({
         row: r,
         col: c,
-        w: tW,
-        h: tH,
         dataUrl: canvas.toDataURL('image/png'),
-        canvas,
       });
     }
   }
@@ -88,29 +85,45 @@ function canvasToImage(canvas) {
   });
 }
 
+// Minimal Icons Component Library
+const Icons = {
+  Image: () => <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>,
+  Export: () => <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>,
+  Reset: () => <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>,
+  Grid: () => <svg viewBox="0 0 24 24"><path d="M3 3v18h18V3H3zm8 16H5v-6h6v6zm0-8H5V5h6v6zm8 8h-6v-6h6v6zm0-8h-6V5h6v6z"/></svg>,
+  Crop: () => <svg viewBox="0 0 24 24"><path d="M17 15h2V7c0-1.1-.9-2-2-2H9v2h8v8zM7 17V1H5v4H1v2h4v10c0 1.1.9 2 2 2h10v4h2v-4h4v-2H7z"/></svg>,
+  RotateLeft: () => <svg viewBox="0 0 24 24"><path d="M7.11 8.53L5.7 7.11C4.8 8.27 4.24 9.61 4.07 11h2.02c.14-.87.49-1.72 1.02-2.47zM6.09 13H4.07c.17 1.39.72 2.73 1.62 3.89l1.41-1.42c-.52-.75-.87-1.59-1.01-2.47zm1.01 5.32c1.16.9 2.51 1.44 3.9 1.61V17.9c-.87-.15-1.71-.49-2.46-1.03L7.1 18.32zM13 4.07V1L8.45 5.55 13 10V6.09c2.84.48 5 2.94 5 5.91s-2.16 5.43-5 5.91v2.02c3.95-.49 7-3.85 7-7.93s-3.05-7.44-7-7.93z"/></svg>,
+  RotateRight: () => <svg viewBox="0 0 24 24"><path d="M15.55 5.55L11 1v3.07C7.06 4.56 4 7.92 4 12s3.05 7.44 7 7.93v-2.02c-2.84-.48-5-2.94-5-5.91s2.16-5.43 5-5.91V10l4.55-4.45zM19.93 11a7.906 7.906 0 00-1.62-3.89l-1.42 1.42c.54.75.88 1.6 1.02 2.47h2.02zM13 17.9v2.02c1.39-.17 2.74-.71 3.9-1.61l-1.44-1.44c-.75.54-1.59.89-2.46 1.03zm3.89-2.42l1.42 1.41c.9-1.16 1.45-2.5 1.62-3.89h-2.02c-.14.87-.48 1.72-1.02 2.48z"/></svg>,
+  Info: () => <svg viewBox="0 0 24 24"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>,
+};
+
+
 export default function App() {
   const [image, setImage] = useState(null);
   const [fileName, setFileName] = useState('');
+  
+  // Settings
   const [rows, setRows] = useState(1);
   const [cols, setCols] = useState(3);
   const [zoom, setZoom] = useState(1);
   const [offsetX, setOffsetX] = useState(0);
   const [offsetY, setOffsetY] = useState(0);
+  
+  // UI State
+  const [activeTab, setActiveTab] = useState('grid'); // 'grid' | 'crop'
   const [tiles, setTiles] = useState([]);
   const [cropRect, setCropRect] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [isDropActive, setIsDropActive] = useState(false);
 
   const canvasRef = useRef(null);
   const dragStart = useRef(null);
   const fileInputRef = useRef(null);
 
-  // Rebuild tiles when params change
+  // Recalculate crop & tiles
   useEffect(() => {
     if (!image) { setTiles([]); setCropRect(null); return; }
     const crop = computeCropRect(image.width, image.height, rows, cols, zoom, offsetX, offsetY);
-    setOffsetX(crop.clampedOx);
-    setOffsetY(crop.clampedOy);
+    // Only update offset state if it was clamped, to avoid infinite loops, but here we just pass it to draw
     setCropRect(crop);
     setTiles(generateTiles(image, crop, rows, cols));
     drawPreview(image, crop, rows, cols);
@@ -121,8 +134,8 @@ export default function App() {
     if (!canvas || !img) return;
 
     const container = canvas.parentElement;
-    const maxW = container.clientWidth;
-    const maxH = container.clientHeight;
+    const maxW = container.clientWidth - 32; // padding
+    const maxH = container.clientHeight - 32;
     const scale = Math.min(maxW / img.width, maxH / img.height, 1);
     const dW = Math.round(img.width * scale);
     const dH = Math.round(img.height * scale);
@@ -131,27 +144,27 @@ export default function App() {
     canvas.height = dH;
     const ctx = canvas.getContext('2d');
 
-    // Draw image
+    // Draw full image
     ctx.drawImage(img, 0, 0, dW, dH);
 
-    // Shade outside crop
+    // Apply exact preview shade mapping to match iOS native styles exactly
     const cx = crop.x * scale, cy = crop.y * scale;
     const cw = crop.w * scale, ch = crop.h * scale;
 
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)'; // Darker shade for pro look
     ctx.fillRect(0, 0, dW, cy);
     ctx.fillRect(0, cy + ch, dW, dH - cy - ch);
     ctx.fillRect(0, cy, cx, ch);
     ctx.fillRect(cx + cw, cy, dW - cx - cw, ch);
 
     // Crop border
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1.5;
     ctx.strokeRect(cx, cy, cw, ch);
 
     // Grid lines
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-    ctx.lineWidth = 0.8;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 1;
     for (let i = 1; i < r; i++) {
       const y = cy + (ch * i) / r;
       ctx.beginPath(); ctx.moveTo(cx, y); ctx.lineTo(cx + cw, y); ctx.stroke();
@@ -162,7 +175,7 @@ export default function App() {
     }
   }, []);
 
-  const loadFile = useCallback((file) => {
+  const loadFile = (file) => {
     if (!file || !file.type.startsWith('image/')) return;
     setFileName(file.name.replace(/\.[^.]+$/, ''));
     const reader = new FileReader();
@@ -177,21 +190,11 @@ export default function App() {
       img.src = e.target.result;
     };
     reader.readAsDataURL(file);
-  }, []);
+  };
 
   const handleImport = () => fileInputRef.current?.click();
 
-  const handleDrop = useCallback((e) => {
-    e.preventDefault();
-    setIsDropActive(false);
-    const file = e.dataTransfer.files[0];
-    loadFile(file);
-  }, [loadFile]);
-
-  const handleDragOver = (e) => { e.preventDefault(); setIsDropActive(true); };
-  const handleDragLeave = () => setIsDropActive(false);
-
-  // Preview drag
+  // Mouse Dragging
   const handleMouseDown = (e) => {
     if (!image || !canvasRef.current) return;
     setIsDragging(true);
@@ -203,11 +206,9 @@ export default function App() {
   const handleMouseMove = useCallback((e) => {
     if (!isDragging || !dragStart.current) return;
     const { x, y, ox, oy, scale } = dragStart.current;
-    const dx = (e.clientX - x) / scale;
-    const dy = (e.clientY - y) / scale;
-    setOffsetX(ox + dx);
-    setOffsetY(oy + dy);
-  }, [isDragging]);
+    setOffsetX(ox + (e.clientX - x) / scale);
+    setOffsetY(oy + (e.clientY - y) / scale);
+  }, [isDragging, offsetX, offsetY]);
 
   const handleMouseUp = () => {
     setIsDragging(false);
@@ -225,7 +226,7 @@ export default function App() {
     }
   }, [isDragging, handleMouseMove]);
 
-  // Resize handler for preview
+  // Window Resize
   useEffect(() => {
     if (!image || !cropRect) return;
     const handleResize = () => drawPreview(image, cropRect, rows, cols);
@@ -233,6 +234,7 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, [image, cropRect, rows, cols, drawPreview]);
 
+  // Actions
   const handleRotate = async (clockwise) => {
     if (!image) return;
     const rotated = rotateImage(image, clockwise);
@@ -241,8 +243,6 @@ export default function App() {
     setOffsetX(0);
     setOffsetY(0);
   };
-
-  const handleReset = () => { setZoom(1); setOffsetX(0); setOffsetY(0); };
 
   const handleExport = () => {
     tiles.forEach((tile) => {
@@ -253,85 +253,93 @@ export default function App() {
     });
   };
 
-  const handleExportZip = async () => {
-    // Simple sequential download
-    handleExport();
-  };
+  if (!image) {
+    return (
+      <div className="app">
+        <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => loadFile(e.target.files[0])} />
+        <div className="empty-state">
+          <Icons.Image />
+          <p>Import an image to start editing</p>
+          <button className="primary-btn" onClick={handleImport}>Choose Image</button>
+        </div>
+      </div>
+    );
+  }
+
+  const isAdjusted = zoom > 1.01 || Math.abs(offsetX) > 1 || Math.abs(offsetY) > 1;
 
   return (
     <div className="app">
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        style={{ display: 'none' }}
-        onChange={(e) => loadFile(e.target.files[0])}
-      />
-
-      {/* Sidebar */}
-      <aside className="sidebar">
-        <div className="sidebar-header">
-          <h1><span>⊞</span> Image Splitter</h1>
+      <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => loadFile(e.target.files[0])} />
+      
+      {/* Top Bar */}
+      <header className="top-bar">
+        <div className="top-bar-left">
+          <button className="icon-btn" onClick={handleImport} title="Open Image">
+            <Icons.Image />
+          </button>
+          
+          <button 
+            className="icon-btn" 
+            onClick={() => { setZoom(1); setOffsetX(0); setOffsetY(0); }} 
+            disabled={!isAdjusted}
+            title="Reset Crop"
+          >
+            <Icons.Reset />
+          </button>
         </div>
+        
+        <div className="top-bar-title">{fileName}</div>
 
-        <div className="sidebar-body">
-          {/* Source */}
-          <div className="section">
-            <div className="section-header">
-              <span className="section-title">Source</span>
-            </div>
-            <div className="section-body">
-              {image ? (
-                <>
-                  <div className="source-info">
-                    <div className="source-stat">
-                      <div className="source-stat-label">Original</div>
-                      <div className="source-stat-value">{image.width} × {image.height}</div>
-                    </div>
-                    {cropRect && (
-                      <div className="source-stat">
-                        <div className="source-stat-label">Crop</div>
-                        <div className="source-stat-value">{cropRect.w} × {cropRect.h}</div>
-                      </div>
-                    )}
-                  </div>
-                  <button className="btn btn-secondary" onClick={handleImport}>
-                    Change Image
-                  </button>
-                </>
-              ) : (
-                <button className="btn btn-primary" onClick={handleImport}>
-                  Import Image
-                </button>
-              )}
-            </div>
-          </div>
+        <div className="top-bar-right">
+          <button className="text-btn" onClick={handleExport} disabled={tiles.length === 0}>
+            Export
+          </button>
+        </div>
+      </header>
 
-          {/* Grid */}
-          <div className="section">
-            <div className="section-header">
-              <span className="section-title">Grid</span>
-              <span className="section-badge">{rows * cols} tiles</span>
-            </div>
-            <div className="section-body">
-              <Stepper label="Rows" value={rows} onChange={setRows} min={1} max={20} />
-              <Stepper label="Columns" value={cols} onChange={setCols} min={1} max={20} />
-            </div>
-          </div>
+      {/* Main Canvas Area */}
+      <main className="preview-area">
+        <div className="preview-canvas-wrap" onMouseDown={handleMouseDown}>
+          <canvas ref={canvasRef} />
+        </div>
+      </main>
 
-          {/* Adjust */}
-          <div className="section">
-            <div className="section-header">
-              <span className="section-title">Adjust</span>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button className="btn-icon" onClick={() => handleRotate(false)} disabled={!image} title="Rotate Left">↶</button>
-                <button className="btn-icon" onClick={() => handleRotate(true)} disabled={!image} title="Rotate Right">↷</button>
+      {/* Bottom Control Sheets */}
+      <footer className="bottom-panel">
+        
+        {/* Active Tool Row */}
+        <div className="tool-content">
+          {activeTab === 'grid' && (
+            <div className="tool-row">
+              <div className="stepper-group">
+                <span className="stepper-label">Rows</span>
+                <div className="stepper-controls">
+                  <button className="stepper-btn" onClick={() => setRows(Math.max(1, rows - 1))}>−</button>
+                  <span className="stepper-value">{rows}</span>
+                  <button className="stepper-btn" onClick={() => setRows(Math.min(20, rows + 1))}>+</button>
+                </div>
+              </div>
+              <div className="stepper-group">
+                <span className="stepper-label">Columns</span>
+                <div className="stepper-controls">
+                  <button className="stepper-btn" onClick={() => setCols(Math.max(1, cols - 1))}>−</button>
+                  <span className="stepper-value">{cols}</span>
+                  <button className="stepper-btn" onClick={() => setCols(Math.min(20, cols + 1))}>+</button>
+                </div>
               </div>
             </div>
-            <div className="section-body">
-              <div className="slider-row">
+          )}
+
+          {activeTab === 'crop' && (
+            <div className="tool-row" style={{ gap: '16px' }}>
+              <button className="icon-btn" style={{ background: 'var(--bg-surface)' }} onClick={() => handleRotate(false)}>
+                <Icons.RotateLeft />
+              </button>
+
+              <div className="slider-group">
                 <div className="slider-header">
-                  <span className="slider-label">Zoom</span>
+                  <span>Zoom</span>
                   <span className="slider-value">{zoom.toFixed(1)}×</span>
                 </div>
                 <input
@@ -341,127 +349,61 @@ export default function App() {
                   step="0.05"
                   value={zoom}
                   onChange={(e) => setZoom(parseFloat(e.target.value))}
-                  disabled={!image}
                 />
               </div>
-              {(zoom > 1.01 || Math.abs(offsetX) > 1 || Math.abs(offsetY) > 1) && (
-                <button className="btn btn-danger" onClick={handleReset}>
-                  Reset Crop
-                </button>
-              )}
+
+              <button className="icon-btn" style={{ background: 'var(--bg-surface)' }} onClick={() => handleRotate(true)}>
+                <Icons.RotateRight />
+              </button>
             </div>
-          </div>
+          )}
+
+          {activeTab === 'info' && cropRect && (
+            <div className="tool-row" style={{ gap: '24px' }}>
+              <div className="info-stat">
+                <span className="stepper-label">Original</span>
+                <span className="info-value">{image.width} × {image.height}</span>
+              </div>
+              <div className="info-stat">
+                <span className="stepper-label">Crop Area</span>
+                <span className="info-value">{cropRect.w} × {cropRect.h}</span>
+              </div>
+              <div className="info-stat">
+                <span className="stepper-label">Tile Size</span>
+                <span className="info-value">{Math.round(cropRect.w / cols)} × {Math.round(cropRect.h / rows)}</span>
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="sidebar-footer">
-          <button
-            className="btn btn-primary"
-            onClick={handleExport}
-            disabled={tiles.length === 0}
+        {/* Tab Selector Row */}
+        <div className="bottom-tabs">
+          <button 
+            className={`tab-btn ${activeTab === 'grid' ? 'active' : ''}`}
+            onClick={() => setActiveTab('grid')}
           >
-            ↓ Export {tiles.length} Tiles
+            <Icons.Grid />
+            Grid
+          </button>
+          
+          <button 
+            className={`tab-btn ${activeTab === 'crop' ? 'active' : ''}`}
+            onClick={() => setActiveTab('crop')}
+          >
+            <Icons.Crop />
+            Crop
+          </button>
+          
+          <button 
+            className={`tab-btn ${activeTab === 'info' ? 'active' : ''}`}
+            onClick={() => setActiveTab('info')}
+          >
+            <Icons.Info />
+            Info
           </button>
         </div>
-      </aside>
 
-      {/* Main */}
-      <main className="main">
-        {image ? (
-          <>
-            <div className="main-toolbar">
-              <div className="toolbar-info">
-                <span>{fileName}</span>
-                <span className="toolbar-dot" />
-                <span>{image.width} × {image.height}</span>
-                <span className="toolbar-dot" />
-                <span>{rows} × {cols} grid</span>
-                <span className="toolbar-dot" />
-                <span>{rows * cols} tiles</span>
-              </div>
-              <div className="toolbar-actions">
-                <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={handleImport}>
-                  Replace
-                </button>
-                <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handleExport} disabled={tiles.length === 0}>
-                  Export
-                </button>
-              </div>
-            </div>
-            <div className="main-content">
-              <div className="preview-panel">
-                <div className="preview-canvas-wrap" onMouseDown={handleMouseDown}>
-                  <canvas ref={canvasRef} />
-                </div>
-              </div>
-
-              {/* Tiles sidebar */}
-              <div className="tiles-panel">
-                <div className="tiles-header">
-                  <span className="tiles-header-title">Tiles</span>
-                  <span className="section-badge">{tiles.length}</span>
-                </div>
-                <div className="tiles-scroll">
-                  <div className="tiles-grid">
-                    {tiles.map((tile, i) => (
-                      <div className="tile-card" key={i}>
-                        <img className="tile-image" src={tile.dataUrl} alt={`R${tile.row + 1} C${tile.col + 1}`} />
-                        <div className="tile-meta">
-                          <span className="tile-label">R{tile.row + 1} C{tile.col + 1}</span>
-                          <span className="tile-size">{tile.w}×{tile.h}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </>
-        ) : (
-          <div
-            className="empty-state"
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-          >
-            <div className={`drop-zone ${isDropActive ? 'active' : ''}`} onClick={handleImport}>
-              <div className="drop-icon">📸</div>
-              <h2>Drop an image here</h2>
-              <p>or click to browse your files</p>
-              <button className="btn btn-primary" style={{ maxWidth: 200, margin: '0 auto' }} onClick={(e) => { e.stopPropagation(); handleImport(); }}>
-                Choose Image
-              </button>
-              <div className="drop-or">Supports PNG, JPEG, WebP, and more</div>
-              <div className="features-row">
-                <div className="feature-item">
-                  <div className="feature-icon">🔲</div>
-                  <span className="feature-label">3∶4 Tiles</span>
-                </div>
-                <div className="feature-item">
-                  <div className="feature-icon">✂️</div>
-                  <span className="feature-label">Crop & Zoom</span>
-                </div>
-                <div className="feature-item">
-                  <div className="feature-icon">📦</div>
-                  <span className="feature-label">Export PNG</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
-    </div>
-  );
-}
-
-function Stepper({ label, value, onChange, min, max }) {
-  return (
-    <div className="stepper-row">
-      <span className="stepper-label">{label}</span>
-      <div className="stepper-controls">
-        <button className="stepper-btn" onClick={() => onChange(Math.max(min, value - 1))} disabled={value <= min}>−</button>
-        <span className="stepper-value">{value}</span>
-        <button className="stepper-btn" onClick={() => onChange(Math.min(max, value + 1))} disabled={value >= max}>+</button>
-      </div>
+      </footer>
     </div>
   );
 }
