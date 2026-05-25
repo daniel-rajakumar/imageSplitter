@@ -5,9 +5,21 @@ import JSZip from 'jszip';
 
 const TILE_RATIO_W = 3;
 const TILE_RATIO_H = 4;
+const ASPECT_PRESETS = [
+  { id: 'portrait', label: '3:4', w: 3, h: 4 },
+  { id: 'square', label: '1:1', w: 1, h: 1 },
+  { id: 'story', label: '9:16', w: 9, h: 16 },
+  { id: 'custom', label: 'Custom' },
+];
+const GRID_PRESETS = [
+  { label: '1x3', rows: 1, cols: 3 },
+  { label: '2x3', rows: 2, cols: 3 },
+  { label: '3x3', rows: 3, cols: 3 },
+  { label: '4x3', rows: 4, cols: 3 },
+];
 
-function computeCropLayout(imgW, imgH, rows, cols) {
-  const targetAspect = (cols * TILE_RATIO_W) / (rows * TILE_RATIO_H);
+function computeCropLayout(imgW, imgH, rows, cols, tileRatioW, tileRatioH) {
+  const targetAspect = (cols * tileRatioW) / (rows * tileRatioH);
   const srcAspect = imgW / imgH;
   let baseW, baseH;
   if (srcAspect > targetAspect) {
@@ -20,8 +32,8 @@ function computeCropLayout(imgW, imgH, rows, cols) {
   return { baseW, baseH };
 }
 
-function computeCropRect(imgW, imgH, rows, cols, zoom, offsetX, offsetY) {
-  const { baseW, baseH } = computeCropLayout(imgW, imgH, rows, cols);
+function computeCropRect(imgW, imgH, rows, cols, zoom, offsetX, offsetY, tileRatioW, tileRatioH) {
+  const { baseW, baseH } = computeCropLayout(imgW, imgH, rows, cols, tileRatioW, tileRatioH);
   const z = Math.min(Math.max(zoom, 1), 4);
   const sW = Math.max(1, baseW / z);
   const sH = Math.max(1, baseH / z);
@@ -148,6 +160,9 @@ export default function App() {
   const [zoom, setZoom] = useState(1);
   const [offsetX, setOffsetX] = useState(0);
   const [offsetY, setOffsetY] = useState(0);
+  const [aspectPreset, setAspectPreset] = useState('portrait');
+  const [tileRatioW, setTileRatioW] = useState(TILE_RATIO_W);
+  const [tileRatioH, setTileRatioH] = useState(TILE_RATIO_H);
   
   // UI State
   const [activeTab, setActiveTab] = useState('grid'); // 'grid' | 'crop'
@@ -247,8 +262,8 @@ export default function App() {
 
   const cropRect = useMemo(() => {
     if (!image) return null;
-    return computeCropRect(image.width, image.height, rows, cols, zoom, offsetX, offsetY);
-  }, [image, rows, cols, zoom, offsetX, offsetY]);
+    return computeCropRect(image.width, image.height, rows, cols, zoom, offsetX, offsetY, tileRatioW, tileRatioH);
+  }, [image, rows, cols, zoom, offsetX, offsetY, tileRatioW, tileRatioH]);
 
   const tileCount = rows * cols;
 
@@ -302,6 +317,37 @@ export default function App() {
     setInstallPrompt(null);
   };
 
+  const resetCropPosition = () => {
+    setZoom(1);
+    setOffsetX(0);
+    setOffsetY(0);
+  };
+
+  const applyGridPreset = (preset) => {
+    setRows(preset.rows);
+    setCols(preset.cols);
+    resetCropPosition();
+  };
+
+  const applyAspectPreset = (preset) => {
+    setAspectPreset(preset.id);
+    if (preset.id !== 'custom') {
+      setTileRatioW(preset.w);
+      setTileRatioH(preset.h);
+      resetCropPosition();
+    }
+  };
+
+  const adjustCustomRatio = (axis, delta) => {
+    setAspectPreset('custom');
+    resetCropPosition();
+    if (axis === 'w') {
+      setTileRatioW((value) => Math.min(32, Math.max(1, value + delta)));
+    } else {
+      setTileRatioH((value) => Math.min(32, Math.max(1, value + delta)));
+    }
+  };
+
   // Touch & Mouse Dragging
   const getCoordinates = (e) => {
     if (e.touches && e.touches.length > 0) {
@@ -332,10 +378,12 @@ export default function App() {
       zoom,
       ox + (pos.x - x) / scale,
       oy + (pos.y - y) / scale,
+      tileRatioW,
+      tileRatioH,
     );
     dragOffset.current = { x: nextCrop.clampedOx, y: nextCrop.clampedOy };
     schedulePreviewDraw(image, nextCrop, rows, cols);
-  }, [cols, image, isDragging, rows, schedulePreviewDraw, zoom]);
+  }, [cols, image, isDragging, rows, schedulePreviewDraw, tileRatioH, tileRatioW, zoom]);
 
   const handlePointerUp = useCallback(() => {
     setIsDragging(false);
@@ -374,8 +422,7 @@ export default function App() {
     const rotated = rotateImage(image, clockwise);
     const newImg = await canvasToImage(rotated);
     setImage(newImg);
-    setOffsetX(0);
-    setOffsetY(0);
+    resetCropPosition();
   };
 
   const handleExport = async () => {
@@ -520,50 +567,99 @@ export default function App() {
         {/* Active Tool Row */}
         <div className="tool-content">
           {activeTab === 'grid' && (
-            <div className="tool-row">
-              <div className="stepper-group">
-                <span className="stepper-label">Rows</span>
-                <div className="stepper-controls">
-                  <button className="stepper-btn" onClick={() => setRows(Math.max(1, rows - 1))}>−</button>
-                  <span className="stepper-value">{rows}</span>
-                  <button className="stepper-btn" onClick={() => setRows(Math.min(20, rows + 1))}>+</button>
-                </div>
+            <div className="tool-stack">
+              <div className="preset-row" aria-label="Grid presets">
+                {GRID_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    className={`preset-btn ${rows === preset.rows && cols === preset.cols ? 'active' : ''}`}
+                    onClick={() => applyGridPreset(preset)}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
               </div>
-              <div className="stepper-group">
-                <span className="stepper-label">Columns</span>
-                <div className="stepper-controls">
-                  <button className="stepper-btn" onClick={() => setCols(Math.max(1, cols - 1))}>−</button>
-                  <span className="stepper-value">{cols}</span>
-                  <button className="stepper-btn" onClick={() => setCols(Math.min(20, cols + 1))}>+</button>
+
+              <div className="tool-row">
+                <div className="stepper-group">
+                  <span className="stepper-label">Rows</span>
+                  <div className="stepper-controls">
+                    <button className="stepper-btn" onClick={() => { setRows(Math.max(1, rows - 1)); resetCropPosition(); }}>−</button>
+                    <span className="stepper-value">{rows}</span>
+                    <button className="stepper-btn" onClick={() => { setRows(Math.min(20, rows + 1)); resetCropPosition(); }}>+</button>
+                  </div>
+                </div>
+                <div className="stepper-group">
+                  <span className="stepper-label">Columns</span>
+                  <div className="stepper-controls">
+                    <button className="stepper-btn" onClick={() => { setCols(Math.max(1, cols - 1)); resetCropPosition(); }}>−</button>
+                    <span className="stepper-value">{cols}</span>
+                    <button className="stepper-btn" onClick={() => { setCols(Math.min(20, cols + 1)); resetCropPosition(); }}>+</button>
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
           {activeTab === 'crop' && (
-            <div className="tool-row" style={{ gap: '16px' }}>
-              <button className="icon-btn" style={{ background: 'var(--bg-surface)' }} onClick={() => handleRotate(false)}>
-                <Icons.RotateLeft />
-              </button>
-
-              <div className="slider-group">
-                <div className="slider-header">
-                  <span>Zoom</span>
-                  <span className="slider-value">{zoom.toFixed(1)}×</span>
-                </div>
-                <input
-                  type="range"
-                  min="1"
-                  max="4"
-                  step="0.05"
-                  value={zoom}
-                  onChange={(e) => setZoom(parseFloat(e.target.value))}
-                />
+            <div className="tool-stack">
+              <div className="preset-row" aria-label="Aspect ratio presets">
+                {ASPECT_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    className={`preset-btn ${aspectPreset === preset.id ? 'active' : ''}`}
+                    onClick={() => applyAspectPreset(preset)}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
               </div>
 
-              <button className="icon-btn" style={{ background: 'var(--bg-surface)' }} onClick={() => handleRotate(true)}>
-                <Icons.RotateRight />
-              </button>
+              {aspectPreset === 'custom' && (
+                <div className="compact-stepper-row">
+                  <div className="stepper-group compact-stepper">
+                    <span className="stepper-label">W</span>
+                    <div className="stepper-controls">
+                      <button className="stepper-btn" onClick={() => adjustCustomRatio('w', -1)}>−</button>
+                      <span className="stepper-value">{tileRatioW}</span>
+                      <button className="stepper-btn" onClick={() => adjustCustomRatio('w', 1)}>+</button>
+                    </div>
+                  </div>
+                  <div className="stepper-group compact-stepper">
+                    <span className="stepper-label">H</span>
+                    <div className="stepper-controls">
+                      <button className="stepper-btn" onClick={() => adjustCustomRatio('h', -1)}>−</button>
+                      <span className="stepper-value">{tileRatioH}</span>
+                      <button className="stepper-btn" onClick={() => adjustCustomRatio('h', 1)}>+</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="tool-row" style={{ gap: '16px' }}>
+                <button className="icon-btn" style={{ background: 'var(--bg-surface)' }} onClick={() => handleRotate(false)}>
+                  <Icons.RotateLeft />
+                </button>
+
+                <div className="slider-group">
+                  <div className="slider-header">
+                    <span>Zoom</span>
+                    <span className="slider-value">{zoom.toFixed(1)}×</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="4"
+                    step="0.05"
+                    value={zoom}
+                    onChange={(e) => setZoom(parseFloat(e.target.value))}
+                  />
+                </div>
+
+                <button className="icon-btn" style={{ background: 'var(--bg-surface)' }} onClick={() => handleRotate(true)}>
+                  <Icons.RotateRight />
+                </button>
+              </div>
             </div>
           )}
 
@@ -580,6 +676,10 @@ export default function App() {
               <div className="info-stat">
                 <span className="stepper-label">Tile Size</span>
                 <span className="info-value">{Math.round(cropRect.w / cols)} × {Math.round(cropRect.h / rows)}</span>
+              </div>
+              <div className="info-stat">
+                <span className="stepper-label">Tile Ratio</span>
+                <span className="info-value">{tileRatioW}:{tileRatioH}</span>
               </div>
             </div>
           )}
