@@ -169,6 +169,10 @@
   padding-inline: 8px;
 }
 
+.save-btn {
+  display: none;
+}
+
 
 /* ===== Bottom Controls Panel ===== */
 
@@ -351,5 +355,15 @@
 
   .bottom-tabs {
     gap: 16px;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .save-btn {
+    display: inline-flex;
+  }
+
+  .download-btn {
+    display: none;
   }
 }

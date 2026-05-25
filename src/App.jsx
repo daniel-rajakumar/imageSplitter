@@ -63,6 +63,40 @@ function generateTiles(img, crop, rows, cols) {
   return tiles;
 }
 
+function canvasToBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+      } else {
+        reject(new Error('Could not create image file.'));
+      }
+    }, 'image/png');
+  });
+}
+
+async function generateTileFiles(img, crop, rows, cols, baseName) {
+  const files = [];
+  for (let r = 0; r < rows; r++) {
+    const top = crop.y + Math.round((crop.h * r) / rows);
+    const bottom = crop.y + Math.round((crop.h * (r + 1)) / rows);
+    const tH = bottom - top;
+    for (let c = 0; c < cols; c++) {
+      const left = crop.x + Math.round((crop.w * c) / cols);
+      const right = crop.x + Math.round((crop.w * (c + 1)) / cols);
+      const tW = right - left;
+      const canvas = document.createElement('canvas');
+      canvas.width = tW;
+      canvas.height = tH;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, left, top, tW, tH, 0, 0, tW, tH);
+      const blob = await canvasToBlob(canvas);
+      files.push(new File([blob], `${baseName}_r${r + 1}_c${c + 1}.png`, { type: 'image/png' }));
+    }
+  }
+  return files;
+}
+
 function rotateImage(img, clockwise) {
   const canvas = document.createElement('canvas');
   canvas.width = img.height;
@@ -372,6 +406,43 @@ export default function App() {
     }
   };
 
+  const handleSaveImages = async () => {
+    if (!image || !cropRect || tileCount === 0 || isExporting) return;
+
+    setIsExporting(true);
+    try {
+      const baseName = fileName || 'tiles';
+      const files = await generateTileFiles(image, cropRect, rows, cols, baseName);
+
+      if (navigator.canShare?.({ files })) {
+        await navigator.share({
+          files,
+          title: 'Image Splitter',
+          text: tileCount === 1 ? 'Save this image.' : 'Save these image tiles.',
+        });
+        return;
+      }
+
+      const zip = new JSZip();
+      files.forEach((file) => zip.file(file.name, file));
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.download = `${baseName}_tiles.zip`;
+      link.href = url;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      if (error?.name !== 'AbortError') {
+        console.error(error);
+      }
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   if (!image) {
     return (
       <div className="app">
@@ -422,7 +493,11 @@ export default function App() {
         <div className="top-bar-title">{fileName}</div>
 
         <div className="top-bar-right">
-          <button className="text-btn" onClick={handleExport} disabled={tileCount === 0 || isExporting}>
+          <button className="text-btn save-btn" onClick={handleSaveImages} disabled={tileCount === 0 || isExporting}>
+            {isExporting ? 'Saving' : tileCount === 1 ? 'Save Image' : 'Save Images'}
+          </button>
+
+          <button className="text-btn download-btn" onClick={handleExport} disabled={tileCount === 0 || isExporting}>
             {isExporting ? 'Exporting' : 'Export'}
           </button>
         </div>
