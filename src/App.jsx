@@ -1,5 +1,7 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import './App.css';
+'use client';
+
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import JSZip from 'jszip';
 
 const TILE_RATIO_W = 3;
 const TILE_RATIO_H = 4;
@@ -85,6 +87,10 @@ function canvasToImage(canvas) {
   });
 }
 
+function getDataUrlBase64(dataUrl) {
+  return dataUrl.split(',')[1] || '';
+}
+
 // Minimal Icons Component Library
 const Icons = {
   Image: () => <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>,
@@ -111,23 +117,42 @@ export default function App() {
   
   // UI State
   const [activeTab, setActiveTab] = useState('grid'); // 'grid' | 'crop'
-  const [tiles, setTiles] = useState([]);
-  const [cropRect, setCropRect] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [isStandalone, setIsStandalone] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  });
 
   const canvasRef = useRef(null);
   const dragStart = useRef(null);
+  const dragOffset = useRef({ x: 0, y: 0 });
+  const previewFrame = useRef(null);
+  const pendingPreview = useRef(null);
   const fileInputRef = useRef(null);
 
-  // Recalculate crop & tiles
   useEffect(() => {
-    if (!image) { setTiles([]); setCropRect(null); return; }
-    const crop = computeCropRect(image.width, image.height, rows, cols, zoom, offsetX, offsetY);
-    // Only update offset state if it was clamped, to avoid infinite loops, but here we just pass it to draw
-    setCropRect(crop);
-    setTiles(generateTiles(image, crop, rows, cols));
-    drawPreview(image, crop, rows, cols);
-  }, [image, rows, cols, zoom, offsetX, offsetY]);
+    const handleBeforeInstallPrompt = (event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+    };
+    const handleInstalled = () => {
+      setInstallPrompt(null);
+      setIsStandalone(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleInstalled);
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleInstalled);
+    };
+  }, []);
 
   const drawPreview = useCallback((img, crop, r, c) => {
     const canvas = canvasRef.current;
@@ -140,9 +165,12 @@ export default function App() {
     const dW = Math.round(img.width * scale);
     const dH = Math.round(img.height * scale);
 
-    canvas.width = dW;
-    canvas.height = dH;
+    if (canvas.width !== dW || canvas.height !== dH) {
+      canvas.width = dW;
+      canvas.height = dH;
+    }
     const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, dW, dH);
 
     // Draw full image
     ctx.drawImage(img, 0, 0, dW, dH);
@@ -175,6 +203,37 @@ export default function App() {
     }
   }, []);
 
+  const cropRect = useMemo(() => {
+    if (!image) return null;
+    return computeCropRect(image.width, image.height, rows, cols, zoom, offsetX, offsetY);
+  }, [image, rows, cols, zoom, offsetX, offsetY]);
+
+  const tileCount = rows * cols;
+
+  const schedulePreviewDraw = useCallback((img, crop, r, c) => {
+    pendingPreview.current = { img, crop, r, c };
+    if (previewFrame.current !== null) return;
+
+    previewFrame.current = requestAnimationFrame(() => {
+      previewFrame.current = null;
+      const next = pendingPreview.current;
+      pendingPreview.current = null;
+      if (next) drawPreview(next.img, next.crop, next.r, next.c);
+    });
+  }, [drawPreview]);
+
+  useEffect(() => {
+    if (!image || !cropRect) return;
+    dragOffset.current = { x: cropRect.clampedOx, y: cropRect.clampedOy };
+    schedulePreviewDraw(image, cropRect, rows, cols);
+  }, [image, cropRect, rows, cols, schedulePreviewDraw]);
+
+  useEffect(() => () => {
+    if (previewFrame.current !== null) {
+      cancelAnimationFrame(previewFrame.current);
+    }
+  }, []);
+
   const loadFile = (file) => {
     if (!file || !file.type.startsWith('image/')) return;
     setFileName(file.name.replace(/\.[^.]+$/, ''));
@@ -194,6 +253,13 @@ export default function App() {
 
   const handleImport = () => fileInputRef.current?.click();
 
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    setInstallPrompt(null);
+  };
+
   // Touch & Mouse Dragging
   const getCoordinates = (e) => {
     if (e.touches && e.touches.length > 0) {
@@ -208,21 +274,33 @@ export default function App() {
     const pos = getCoordinates(e);
     const canvas = canvasRef.current;
     const scale = canvas.width / image.width;
-    dragStart.current = { x: pos.x, y: pos.y, ox: offsetX, oy: offsetY, scale };
+    dragStart.current = { x: pos.x, y: pos.y, ox: dragOffset.current.x, oy: dragOffset.current.y, scale };
   };
 
   const handlePointerMove = useCallback((e) => {
     if (!isDragging || !dragStart.current) return;
+    if (e.cancelable) e.preventDefault();
     const pos = getCoordinates(e);
     const { x, y, ox, oy, scale } = dragStart.current;
-    setOffsetX(ox + (pos.x - x) / scale);
-    setOffsetY(oy + (pos.y - y) / scale);
-  }, [isDragging, offsetX, offsetY]);
+    const nextCrop = computeCropRect(
+      image.width,
+      image.height,
+      rows,
+      cols,
+      zoom,
+      ox + (pos.x - x) / scale,
+      oy + (pos.y - y) / scale,
+    );
+    dragOffset.current = { x: nextCrop.clampedOx, y: nextCrop.clampedOy };
+    schedulePreviewDraw(image, nextCrop, rows, cols);
+  }, [cols, image, isDragging, rows, schedulePreviewDraw, zoom]);
 
-  const handlePointerUp = () => {
+  const handlePointerUp = useCallback(() => {
     setIsDragging(false);
     dragStart.current = null;
-  };
+    setOffsetX(dragOffset.current.x);
+    setOffsetY(dragOffset.current.y);
+  }, []);
 
   useEffect(() => {
     if (isDragging) {
@@ -238,15 +316,15 @@ export default function App() {
         window.removeEventListener('touchend', handlePointerUp);
       };
     }
-  }, [isDragging, handlePointerMove]);
+  }, [isDragging, handlePointerMove, handlePointerUp]);
 
   // Window Resize
   useEffect(() => {
     if (!image || !cropRect) return;
-    const handleResize = () => drawPreview(image, cropRect, rows, cols);
+    const handleResize = () => schedulePreviewDraw(image, cropRect, rows, cols);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [image, cropRect, rows, cols, drawPreview]);
+  }, [image, cropRect, rows, cols, schedulePreviewDraw]);
 
   // Actions
   const handleRotate = async (clockwise) => {
@@ -258,13 +336,32 @@ export default function App() {
     setOffsetY(0);
   };
 
-  const handleExport = () => {
-    tiles.forEach((tile) => {
+  const handleExport = async () => {
+    if (!image || !cropRect || tileCount === 0 || isExporting) return;
+
+    setIsExporting(true);
+    try {
+      const zip = new JSZip();
+      const baseName = fileName || 'tiles';
+      const tiles = generateTiles(image, cropRect, rows, cols);
+
+      tiles.forEach((tile) => {
+        const name = `${baseName}_r${tile.row + 1}_c${tile.col + 1}.png`;
+        zip.file(name, getDataUrlBase64(tile.dataUrl), { base64: true });
+      });
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.download = `${fileName || 'tile'}_r${tile.row + 1}_c${tile.col + 1}.png`;
-      link.href = tile.dataUrl;
+      link.download = `${baseName}_tiles.zip`;
+      link.href = url;
+      document.body.appendChild(link);
       link.click();
-    });
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   if (!image) {
@@ -275,6 +372,11 @@ export default function App() {
           <Icons.Image />
           <p>Import an image to start editing</p>
           <button className="primary-btn" onClick={handleImport}>Choose Image</button>
+          {installPrompt && !isStandalone && (
+            <button className="text-btn install-empty-btn" onClick={handleInstall}>
+              Install App
+            </button>
+          )}
         </div>
       </div>
     );
@@ -292,6 +394,12 @@ export default function App() {
           <button className="icon-btn" onClick={handleImport} title="Open Image">
             <Icons.Image />
           </button>
+
+          {installPrompt && !isStandalone && (
+            <button className="text-btn install-btn" onClick={handleInstall}>
+              Install
+            </button>
+          )}
           
           <button 
             className="icon-btn" 
@@ -306,8 +414,8 @@ export default function App() {
         <div className="top-bar-title">{fileName}</div>
 
         <div className="top-bar-right">
-          <button className="text-btn" onClick={handleExport} disabled={tiles.length === 0}>
-            Export
+          <button className="text-btn" onClick={handleExport} disabled={tileCount === 0 || isExporting}>
+            {isExporting ? 'Exporting' : 'Export'}
           </button>
         </div>
       </header>

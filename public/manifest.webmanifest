@@ -1,0 +1,28 @@
+{
+  "name": "Image Splitter",
+  "short_name": "Splitter",
+  "description": "Split images into Instagram-ready portrait tiles.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "categories": ["photo", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/hero.png",
+      "sizes": "343x361",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ]
+}

@@ -161,6 +161,14 @@
   background: var(--accent-hover);
 }
 
+.install-empty-btn {
+  margin-top: 12px;
+}
+
+.install-btn {
+  padding-inline: 8px;
+}
+
 
 /* ===== Bottom Controls Panel ===== */
 
