@@ -164,12 +164,20 @@ export default function App() {
     const scale = Math.min(maxW / img.width, maxH / img.height, 1);
     const dW = Math.round(img.width * scale);
     const dH = Math.round(img.height * scale);
+    const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+    const backingW = Math.round(dW * pixelRatio);
+    const backingH = Math.round(dH * pixelRatio);
 
-    if (canvas.width !== dW || canvas.height !== dH) {
-      canvas.width = dW;
-      canvas.height = dH;
+    if (canvas.width !== backingW || canvas.height !== backingH) {
+      canvas.width = backingW;
+      canvas.height = backingH;
+      canvas.style.width = `${dW}px`;
+      canvas.style.height = `${dH}px`;
     }
     const ctx = canvas.getContext('2d');
+    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.clearRect(0, 0, dW, dH);
 
     // Draw full image
@@ -273,7 +281,7 @@ export default function App() {
     setIsDragging(true);
     const pos = getCoordinates(e);
     const canvas = canvasRef.current;
-    const scale = canvas.width / image.width;
+    const scale = canvas.getBoundingClientRect().width / image.width;
     dragStart.current = { x: pos.x, y: pos.y, ox: dragOffset.current.x, oy: dragOffset.current.y, scale };
   };
 
