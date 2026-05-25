@@ -143,7 +143,6 @@ const Icons = {
   Export: () => <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>,
   Reset: () => <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>,
   Grid: () => <svg viewBox="0 0 24 24"><path d="M3 3v18h18V3H3zm8 16H5v-6h6v6zm0-8H5V5h6v6zm8 8h-6v-6h6v6zm0-8h-6V5h6v6z"/></svg>,
-  Crop: () => <svg viewBox="0 0 24 24"><path d="M17 15h2V7c0-1.1-.9-2-2-2H9v2h8v8zM7 17V1H5v4H1v2h4v10c0 1.1.9 2 2 2h10v4h2v-4h4v-2H7z"/></svg>,
   RotateLeft: () => <svg viewBox="0 0 24 24"><path d="M7.11 8.53L5.7 7.11C4.8 8.27 4.24 9.61 4.07 11h2.02c.14-.87.49-1.72 1.02-2.47zM6.09 13H4.07c.17 1.39.72 2.73 1.62 3.89l1.41-1.42c-.52-.75-.87-1.59-1.01-2.47zm1.01 5.32c1.16.9 2.51 1.44 3.9 1.61V17.9c-.87-.15-1.71-.49-2.46-1.03L7.1 18.32zM13 4.07V1L8.45 5.55 13 10V6.09c2.84.48 5 2.94 5 5.91s-2.16 5.43-5 5.91v2.02c3.95-.49 7-3.85 7-7.93s-3.05-7.44-7-7.93z"/></svg>,
   RotateRight: () => <svg viewBox="0 0 24 24"><path d="M15.55 5.55L11 1v3.07C7.06 4.56 4 7.92 4 12s3.05 7.44 7 7.93v-2.02c-2.84-.48-5-2.94-5-5.91s2.16-5.43 5-5.91V10l4.55-4.45zM19.93 11a7.906 7.906 0 00-1.62-3.89l-1.42 1.42c.54.75.88 1.6 1.02 2.47h2.02zM13 17.9v2.02c1.39-.17 2.74-.71 3.9-1.61l-1.44-1.44c-.75.54-1.59.89-2.46 1.03zm3.89-2.42l1.42 1.41c.9-1.16 1.45-2.5 1.62-3.89h-2.02c-.14.87-.48 1.72-1.02 2.48z"/></svg>,
   Info: () => <svg viewBox="0 0 24 24"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>,
@@ -165,7 +164,7 @@ export default function App() {
   const [tileRatioH, setTileRatioH] = useState(TILE_RATIO_H);
   
   // UI State
-  const [activeTab, setActiveTab] = useState('grid'); // 'grid' | 'crop'
+  const [activeTab, setActiveTab] = useState('grid'); // 'grid' | 'info'
   const [isDragging, setIsDragging] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(null);
@@ -175,8 +174,11 @@ export default function App() {
   });
 
   const canvasRef = useRef(null);
+  const isDraggingRef = useRef(false);
   const dragStart = useRef(null);
   const dragOffset = useRef({ x: 0, y: 0 });
+  const liveZoom = useRef(1);
+  const pinchStart = useRef(null);
   const previewFrame = useRef(null);
   const pendingPreview = useRef(null);
   const fileInputRef = useRef(null);
@@ -281,9 +283,10 @@ export default function App() {
 
   useEffect(() => {
     if (!image || !cropRect) return;
+    liveZoom.current = zoom;
     dragOffset.current = { x: cropRect.clampedOx, y: cropRect.clampedOy };
     schedulePreviewDraw(image, cropRect, rows, cols);
-  }, [image, cropRect, rows, cols, schedulePreviewDraw]);
+  }, [image, cropRect, rows, cols, schedulePreviewDraw, zoom]);
 
   useEffect(() => () => {
     if (previewFrame.current !== null) {
@@ -318,6 +321,7 @@ export default function App() {
   };
 
   const resetCropPosition = () => {
+    liveZoom.current = 1;
     setZoom(1);
     setOffsetX(0);
     setOffsetY(0);
@@ -356,8 +360,15 @@ export default function App() {
     return { x: e.clientX, y: e.clientY };
   };
 
+  const getTouchDistance = (touches) => {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.hypot(dx, dy);
+  };
+
   const handlePointerDown = (e) => {
     if (!image || !canvasRef.current) return;
+    isDraggingRef.current = true;
     setIsDragging(true);
     const pos = getCoordinates(e);
     const canvas = canvasRef.current;
@@ -365,8 +376,58 @@ export default function App() {
     dragStart.current = { x: pos.x, y: pos.y, ox: dragOffset.current.x, oy: dragOffset.current.y, scale };
   };
 
+  const handleTouchStart = (e) => {
+    if (!image || !canvasRef.current) return;
+
+    if (e.touches.length >= 2) {
+      if (e.cancelable) e.preventDefault();
+      isDraggingRef.current = false;
+      setIsDragging(false);
+      dragStart.current = null;
+      pinchStart.current = {
+        distance: getTouchDistance(e.touches),
+        zoom: liveZoom.current,
+      };
+      return;
+    }
+
+    if (!pinchStart.current) {
+      handlePointerDown(e);
+    }
+  };
+
+  const handlePinchMove = useCallback((e) => {
+    if (!image || !pinchStart.current || e.touches.length < 2) return;
+    if (e.cancelable) e.preventDefault();
+
+    const distance = getTouchDistance(e.touches);
+    if (pinchStart.current.distance <= 0) return;
+
+    const nextZoom = Math.min(4, Math.max(1, pinchStart.current.zoom * (distance / pinchStart.current.distance)));
+    liveZoom.current = nextZoom;
+
+    const nextCrop = computeCropRect(
+      image.width,
+      image.height,
+      rows,
+      cols,
+      nextZoom,
+      dragOffset.current.x,
+      dragOffset.current.y,
+      tileRatioW,
+      tileRatioH,
+    );
+    dragOffset.current = { x: nextCrop.clampedOx, y: nextCrop.clampedOy };
+    schedulePreviewDraw(image, nextCrop, rows, cols);
+  }, [cols, image, rows, schedulePreviewDraw, tileRatioH, tileRatioW]);
+
   const handlePointerMove = useCallback((e) => {
-    if (!isDragging || !dragStart.current) return;
+    if (e.touches?.length >= 2) {
+      handlePinchMove(e);
+      return;
+    }
+
+    if (!isDraggingRef.current || !dragStart.current) return;
     if (e.cancelable) e.preventDefault();
     const pos = getCoordinates(e);
     const { x, y, ox, oy, scale } = dragStart.current;
@@ -383,11 +444,20 @@ export default function App() {
     );
     dragOffset.current = { x: nextCrop.clampedOx, y: nextCrop.clampedOy };
     schedulePreviewDraw(image, nextCrop, rows, cols);
-  }, [cols, image, isDragging, rows, schedulePreviewDraw, tileRatioH, tileRatioW, zoom]);
+  }, [cols, handlePinchMove, image, rows, schedulePreviewDraw, tileRatioH, tileRatioW, zoom]);
 
   const handlePointerUp = useCallback(() => {
     setIsDragging(false);
+    isDraggingRef.current = false;
     dragStart.current = null;
+    setOffsetX(dragOffset.current.x);
+    setOffsetY(dragOffset.current.y);
+  }, []);
+
+  const finishPinch = useCallback(() => {
+    if (!pinchStart.current) return;
+    pinchStart.current = null;
+    setZoom(liveZoom.current);
     setOffsetX(dragOffset.current.x);
     setOffsetY(dragOffset.current.y);
   }, []);
@@ -396,17 +466,36 @@ export default function App() {
     if (isDragging) {
       const moveHandler = (e) => handlePointerMove(e);
       window.addEventListener('mousemove', moveHandler);
-      window.addEventListener('touchmove', moveHandler, { passive: false });
       window.addEventListener('mouseup', handlePointerUp);
-      window.addEventListener('touchend', handlePointerUp);
       return () => {
         window.removeEventListener('mousemove', moveHandler);
-        window.removeEventListener('touchmove', moveHandler);
         window.removeEventListener('mouseup', handlePointerUp);
-        window.removeEventListener('touchend', handlePointerUp);
       };
     }
   }, [isDragging, handlePointerMove, handlePointerUp]);
+
+  useEffect(() => {
+    const touchMoveHandler = (e) => handlePointerMove(e);
+    const touchEndHandler = (e) => {
+      if (pinchStart.current && e.touches.length < 2) {
+        finishPinch();
+        return;
+      }
+
+      if (!pinchStart.current && e.touches.length === 0) {
+        handlePointerUp();
+      }
+    };
+
+    window.addEventListener('touchmove', touchMoveHandler, { passive: false });
+    window.addEventListener('touchend', touchEndHandler);
+    window.addEventListener('touchcancel', touchEndHandler);
+    return () => {
+      window.removeEventListener('touchmove', touchMoveHandler);
+      window.removeEventListener('touchend', touchEndHandler);
+      window.removeEventListener('touchcancel', touchEndHandler);
+    };
+  }, [finishPinch, handlePointerMove, handlePointerUp]);
 
   // Window Resize
   useEffect(() => {
@@ -526,10 +615,18 @@ export default function App() {
               Install
             </button>
           )}
+
+          <button className="icon-btn" onClick={() => handleRotate(false)} title="Rotate Left">
+            <Icons.RotateLeft />
+          </button>
+
+          <button className="icon-btn" onClick={() => handleRotate(true)} title="Rotate Right">
+            <Icons.RotateRight />
+          </button>
           
           <button 
             className="icon-btn" 
-            onClick={() => { setZoom(1); setOffsetX(0); setOffsetY(0); }} 
+            onClick={resetCropPosition}
             disabled={!isAdjusted}
             title="Reset Crop"
           >
@@ -555,7 +652,7 @@ export default function App() {
         <div 
           className="preview-canvas-wrap" 
           onMouseDown={handlePointerDown} 
-          onTouchStart={handlePointerDown}
+          onTouchStart={handleTouchStart}
         >
           <canvas ref={canvasRef} />
         </div>
@@ -580,29 +677,6 @@ export default function App() {
                 ))}
               </div>
 
-              <div className="tool-row">
-                <div className="stepper-group">
-                  <span className="stepper-label">Rows</span>
-                  <div className="stepper-controls">
-                    <button className="stepper-btn" onClick={() => { setRows(Math.max(1, rows - 1)); resetCropPosition(); }}>−</button>
-                    <span className="stepper-value">{rows}</span>
-                    <button className="stepper-btn" onClick={() => { setRows(Math.min(20, rows + 1)); resetCropPosition(); }}>+</button>
-                  </div>
-                </div>
-                <div className="stepper-group">
-                  <span className="stepper-label">Columns</span>
-                  <div className="stepper-controls">
-                    <button className="stepper-btn" onClick={() => { setCols(Math.max(1, cols - 1)); resetCropPosition(); }}>−</button>
-                    <span className="stepper-value">{cols}</span>
-                    <button className="stepper-btn" onClick={() => { setCols(Math.min(20, cols + 1)); resetCropPosition(); }}>+</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'crop' && (
-            <div className="tool-stack">
               <div className="preset-row" aria-label="Aspect ratio presets">
                 {ASPECT_PRESETS.map((preset) => (
                   <button
@@ -636,29 +710,23 @@ export default function App() {
                 </div>
               )}
 
-              <div className="tool-row" style={{ gap: '16px' }}>
-                <button className="icon-btn" style={{ background: 'var(--bg-surface)' }} onClick={() => handleRotate(false)}>
-                  <Icons.RotateLeft />
-                </button>
-
-                <div className="slider-group">
-                  <div className="slider-header">
-                    <span>Zoom</span>
-                    <span className="slider-value">{zoom.toFixed(1)}×</span>
+              <div className="tool-row">
+                <div className="stepper-group">
+                  <span className="stepper-label">Rows</span>
+                  <div className="stepper-controls">
+                    <button className="stepper-btn" onClick={() => { setRows(Math.max(1, rows - 1)); resetCropPosition(); }}>−</button>
+                    <span className="stepper-value">{rows}</span>
+                    <button className="stepper-btn" onClick={() => { setRows(Math.min(20, rows + 1)); resetCropPosition(); }}>+</button>
                   </div>
-                  <input
-                    type="range"
-                    min="1"
-                    max="4"
-                    step="0.05"
-                    value={zoom}
-                    onChange={(e) => setZoom(parseFloat(e.target.value))}
-                  />
                 </div>
-
-                <button className="icon-btn" style={{ background: 'var(--bg-surface)' }} onClick={() => handleRotate(true)}>
-                  <Icons.RotateRight />
-                </button>
+                <div className="stepper-group">
+                  <span className="stepper-label">Columns</span>
+                  <div className="stepper-controls">
+                    <button className="stepper-btn" onClick={() => { setCols(Math.max(1, cols - 1)); resetCropPosition(); }}>−</button>
+                    <span className="stepper-value">{cols}</span>
+                    <button className="stepper-btn" onClick={() => { setCols(Math.min(20, cols + 1)); resetCropPosition(); }}>+</button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -693,14 +761,6 @@ export default function App() {
           >
             <Icons.Grid />
             Grid
-          </button>
-          
-          <button 
-            className={`tab-btn ${activeTab === 'crop' ? 'active' : ''}`}
-            onClick={() => setActiveTab('crop')}
-          >
-            <Icons.Crop />
-            Crop
           </button>
           
           <button 

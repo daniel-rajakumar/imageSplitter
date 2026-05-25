@@ -331,28 +331,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Slider (for Zoom) */
-.slider-group {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  flex: 1;
-  max-width: 300px;
-}
-
-.slider-header {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.slider-value {
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-  font-weight: 500;
-}
-
 /* Navigation Tabs (Bottom Row of Bottom Panel) */
 .bottom-tabs {
   display: flex;
